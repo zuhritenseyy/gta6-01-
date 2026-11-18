@@ -23,8 +23,12 @@ export function createRenderer(canvas) {
   const context = canvas.getContext('2d');
   const view = { scale: 1, x: 0, y: 0 };
   const camera = { x: WORLD.width / 2, y: WORLD.height / 2 };
+  // DEBUG (round 2): how many times the canvas was resized (setting
+  // canvas.width clears it). Read by the ?debug=1 overlay in main.js.
+  let resizeCount = 0;
 
   function resize() {
+    resizeCount += 1;
     const ratio = window.devicePixelRatio || 1;
     const width = Math.round(window.innerWidth * ratio);
     const height = Math.round(window.innerHeight * ratio);
@@ -339,5 +343,8 @@ export function createRenderer(canvas) {
 
   resize();
   window.addEventListener('resize', resize);
-  return { drawWorld, snapCamera, camera, view, text };
+  return {
+    drawWorld, snapCamera, camera, view, text,
+    get resizeCount() { return resizeCount; },
+  };
 }

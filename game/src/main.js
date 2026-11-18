@@ -6,7 +6,7 @@
 // ?seed=N fixes the city. ?shot=start|chase|mission (with &seed=N) stages that scene
 // instead of running the loop, paints it twice and sets window.__shotReady for a
 // screenshot.
-import { FIELD, STEP } from './config.js';
+import { FIELD, STEP, WORLD } from './config.js';
 import { createWorld, EVENT_BUSTED, EVENT_MISSION_DONE, EVENT_OVER, EVENT_PICKUP, EVENT_PUNCH, EVENT_SHOT, applySave, beginCurrentMission, resetWorld, stepWorld } from './world.js';
 import { ACTION_CONFIRM, ACTION_ENTER_CAR, ACTION_MUTE, ACTION_PAUSE, ACTION_PUNCH, createInput } from './input.js';
 import { createRenderer, SCREEN_BUSTED, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WIN } from './render.js';
@@ -20,6 +20,7 @@ const MAX_FRAME = 0.25;
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
+const debug = params.get('debug') === '1';
 const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
 const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
 
@@ -46,6 +47,74 @@ function runShot(name) {
   // on the player now; without this it still sits near the world centre.
   renderer.snapCamera(state.player);
   hud.setContext(canvas.getContext('2d'), renderer.view);
+
+  // TEMPORARY DEBUG OVERLAY (?debug=1, round 2): dump geometry + pixel samples
+  // so the real browser can prove where the world is (or isn't), then mark the
+  // player with a red square using drawWorld's own world transform and outline
+  // the field in yellow. Runs after the final paint, before __shotReady flips.
+  // REMOVE BEFORE SUBMIT — it is a diagnostic only, not part of the game.
+  function showDebug() {
+    const ctx = canvas.getContext('2d');
+    const lines = [];
+    const dpr = window.devicePixelRatio || 1;
+    lines.push('SUNVALE DEBUG v1 (round-2 overlay)');
+    lines.push(`canvas ${canvas.width}x${canvas.height} css ${canvas.clientWidth}x${canvas.clientHeight}`);
+    lines.push(`inner ${window.innerWidth}x${window.innerHeight} dpr ${dpr} resizeCount ${renderer.resizeCount}`);
+    lines.push(`view scale=${renderer.view.scale} x=${renderer.view.x} y=${renderer.view.y}`);
+    lines.push(`camera x=${renderer.camera.x} y=${renderer.camera.y}`);
+    const p = state.player;
+    lines.push(`player x=${p.x} y=${p.y} vx=${p.vx} vy=${p.vy} angle=${p.angle} inCar=${state.inCar}`);
+    lines.push(`FIELD ${FIELD.width}x${FIELD.height} WORLD ${WORLD.width}x${WORLD.height}`);
+    lines.push(`shot=${shot} paints=${painted} elapsed=${state.elapsed}`);
+    lines.push(`cars=${state.cars.length} peds=${state.peds.length} buildings=${state.city.buildings.length} trees=${state.city.trees.length} money=${state.money} stars=${state.wanted.stars}`);
+    lines.push(`snapCamera=${typeof renderer.snapCamera}`);
+    const t = ctx.getTransform();
+    lines.push(`ctm a=${t.a} b=${t.b} c=${t.c} d=${t.d} e=${t.e} f=${t.f}`);
+    const W = canvas.width;
+    const H = canvas.height;
+    const pts = [
+      ['center', Math.floor(W / 2), Math.floor(H / 2)],
+      ['top-left', 10, 10],
+      ['top-right', W - 11, 10],
+      ['bottom-left', 10, H - 11],
+      ['bottom-right', W - 11, H - 11],
+      ['mid-left', 10, Math.floor(H / 2)],
+      ['mid-right', W - 11, Math.floor(H / 2)],
+      ['bottom-mid', Math.floor(W / 2), H - 2],
+      ['bottom-mid-10', Math.floor(W / 2), H - 11],
+      ['bottom-mid-30', Math.floor(W / 2), H - 31],
+      ['bottom-left-30', 10, H - 31],
+      ['bottom-right-30', W - 11, H - 31],
+    ];
+    const px = Math.round(renderer.view.x + (FIELD.width / 2) * renderer.view.scale);
+    const py = Math.round(renderer.view.y + (FIELD.height / 2) * renderer.view.scale);
+    pts.push(['player-field-center', px, py]);
+    for (const [label, x, y] of pts) {
+      const d = ctx.getImageData(x, y, 1, 1).data;
+      lines.push(`px ${label} (${x},${y}) rgba(${d[0]},${d[1]},${d[2]},${d[3]})`);
+    }
+    // Transform test: re-apply drawWorld's world transform and mark the player.
+    ctx.save();
+    ctx.setTransform(renderer.view.scale, 0, 0, renderer.view.scale, renderer.view.x, renderer.view.y);
+    ctx.translate(-renderer.camera.x + FIELD.width / 2, -renderer.camera.y + FIELD.height / 2);
+    ctx.fillStyle = '#ff0000';
+    ctx.fillRect(p.x - 20, p.y - 20, 40, 40);
+    ctx.restore();
+    ctx.save();
+    ctx.setTransform(renderer.view.scale, 0, 0, renderer.view.scale, renderer.view.x, renderer.view.y);
+    ctx.strokeStyle = '#ffff00';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(0, 0, FIELD.width, FIELD.height);
+    ctx.restore();
+    const m = ctx.getImageData(px, py, 1, 1).data;
+    lines.push(`px marker-after-player (${px},${py}) rgba(${m[0]},${m[1]},${m[2]},${m[3]})`);
+    const pre = document.createElement('pre');
+    pre.id = 'debug-overlay';
+    pre.textContent = lines.join('\n');
+    pre.style.cssText = 'position:fixed;top:0;left:0;z-index:10;margin:0;padding:8px 10px;background:rgba(0,0,0,0.82);color:#7CFC00;font:12px/1.45 monospace;white-space:pre;pointer-events:none;max-width:100vw;max-height:100vh;overflow:auto;';
+    document.body.appendChild(pre);
+  }
+
   let painted = 0;
   function paint() {
     renderer.drawWorld(state, state.city, STEP);
@@ -53,7 +122,12 @@ function runShot(name) {
     else hud.draw(state, state.city);
     painted += 1;
     if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
+    else {
+      if (debug) {
+        try { showDebug(); } catch (e) { console.error('debug overlay failed', e); }
+      }
+      window.__shotReady = true;
+    }
   }
   requestAnimationFrame(paint);
 }
