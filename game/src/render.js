@@ -44,13 +44,27 @@ export function createRenderer(canvas) {
     context.fillText(value, x, y);
   }
 
+  /** Where the camera wants to sit, in world units: the player, clamped to the city. */
+  function cameraTarget(player) {
+    return {
+      x: clamp(player.x + (player.vx || 0) * LOOKAHEAD * 0.02, FIELD.width / 2, WORLD.width - FIELD.width / 2),
+      y: clamp(player.y + (player.vy || 0) * LOOKAHEAD * 0.02, FIELD.height / 2, WORLD.height - FIELD.height / 2),
+    };
+  }
+
   /** Where the camera sits this frame, in world units: the player, eased toward. */
   function updateCamera(player, dt) {
-    const tx = clamp(player.x + (player.vx || 0) * LOOKAHEAD * 0.02, FIELD.width / 2, WORLD.width - FIELD.width / 2);
-    const ty = clamp(player.y + (player.vy || 0) * LOOKAHEAD * 0.02, FIELD.height / 2, WORLD.height - FIELD.height / 2);
+    const target = cameraTarget(player);
     const ease = Math.min(1, 6 * dt);
-    camera.x += (tx - camera.x) * ease;
-    camera.y += (ty - camera.y) * ease;
+    camera.x += (target.x - camera.x) * ease;
+    camera.y += (target.y - camera.y) * ease;
+  }
+
+  /** Jump the camera straight onto the player: staged screenshots get no frames to ease over. */
+  function snapCamera(player) {
+    const target = cameraTarget(player);
+    camera.x = target.x;
+    camera.y = target.y;
   }
 
   function drawGround(city) {
@@ -283,10 +297,12 @@ export function createRenderer(canvas) {
     context.fillStyle = PALETTE.backdrop;
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
-    // The camera shows a 1280x720 window of the city: clip to it.
+    // Clip to the field viewport itself: after setTransform the user space IS the
+    // 1280x720 field, so the clip rect is the field. A world-coordinate rect here
+    // (camera.x - 640, ...) lands outside the field and hides the whole city.
     context.save();
     context.beginPath();
-    context.rect(camera.x - FIELD.width / 2, camera.y - FIELD.height / 2, FIELD.width, FIELD.height);
+    context.rect(0, 0, FIELD.width, FIELD.height);
     context.clip();
     context.translate(-camera.x + FIELD.width / 2, -camera.y + FIELD.height / 2);
     drawGround(city);
@@ -323,5 +339,5 @@ export function createRenderer(canvas) {
 
   resize();
   window.addEventListener('resize', resize);
-  return { drawWorld, camera, view, text };
+  return { drawWorld, snapCamera, camera, view, text };
 }

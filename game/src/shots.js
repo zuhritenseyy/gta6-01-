@@ -42,6 +42,7 @@ export function stageShot(name, state) {
     p.y = car.y;
     state.wanted.stars = 3;
     state.wanted.quiet = 0;
+    const escorts = [];
     for (let i = 0; i < 2; i += 1) {
       const cop = spawnPoliceCar(state.random, car.x, car.y);
       cop.x = car.x - 260 - i * 140;
@@ -49,6 +50,7 @@ export function stageShot(name, state) {
       cop.angle = 0;
       cop.speed = 320;
       state.cars.push(cop);
+      escorts.push(cop);
     }
     state.money = 640;
     // The package run: the marker sits at the docks, far away, so the objective arrow
@@ -63,6 +65,14 @@ export function stageShot(name, state) {
       p.angle = car.angle;
       state.elapsed += STEP;
     }
+    // The patrol cars get no chase step during the drive (only the player car is
+    // stepped), so put them back on its tail for the frame, same offsets as above.
+    escorts.forEach((cop, i) => {
+      cop.x = car.x - 260 - i * 140;
+      cop.y = 1176 + (i === 0 ? 48 : -48);
+      cop.angle = 0;
+      cop.speed = 320;
+    });
     return { screen: SCREEN_PLAY, best: state.money };
   }
 

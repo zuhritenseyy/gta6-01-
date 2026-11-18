@@ -42,6 +42,9 @@ function mouseToWorld(clientX, clientY) {
 
 function runShot(name) {
   const scene = stageShot(name, state);
+  // Staged scenes get two paints and no frames to ease over, so put the camera
+  // on the player now; without this it still sits near the world centre.
+  renderer.snapCamera(state.player);
   hud.setContext(canvas.getContext('2d'), renderer.view);
   let painted = 0;
   function paint() {
